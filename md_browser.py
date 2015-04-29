@@ -63,6 +63,8 @@ class Handler(SimpleHTTPServer.SimpleHTTPRequestHandler):
                                              self.path[1:]))
     if not full_path.startswith(self.server.top_level):
       self._do_out_of_tree()
+    elif self.path == '/doc.css':
+      self._do_css()
     elif not os.path.exists(full_path):
       self._do_not_found()
     elif self.path.endswith('.css'):
@@ -93,9 +95,9 @@ class Handler(SimpleHTTPServer.SimpleHTTPRequestHandler):
                              output_format='html4').encode('utf-8')
     try:
 
-      self.wfile.write(self._read(os.path.join(CURDIR, 'header.html'))
+      self.wfile.write(self._read(os.path.join(CURDIR, 'header.html')))
       self.wfile.write(md_fragment)
-      self.wfile.write(self._read(os.path.join(CURDIR, 'footer.html'))
+      self.wfile.write(self._read(os.path.join(CURDIR, 'footer.html')))
     except:
       raise
 
