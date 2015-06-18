@@ -1,10 +1,14 @@
 # md\_browser
 
 This is a simple tool to render the markdown docs in a chromium checkout
-locally. It is written in Python and requires that the 'markdown' package
-be installed.
+locally. It is written in Python and uses the Python 'markdown' package;
+that package must either be installed w/ pip, or fetched recursively
+via the git submodules for this repo, i.e.:
 
-It attempts to emulate the flavor of Markdown implemented by
+    % git clone --recursive https://github.com/dpranke/py_markdown
+
+
+md\_browser attempts to emulate the flavor of Markdown implemented by
 [Gitiles](https://gerrit.googlesource.com/gitiles/+/master/Documentation/markdown.md).
 
 Gitiles is the source browser running on https://chromium.googlesource.com,
@@ -35,5 +39,4 @@ If you don't have `pip` installed, run:
 
     % sudo easy_install pip
 
-(I do not yet have install instructions for Windows, but if you can
-get a working copy of pymarkdown, md\_browser should work fine).
+Or, fetch the source repo for markdown as described above.
