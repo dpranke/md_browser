@@ -23,7 +23,7 @@ To run md\_browser:
 
 1. cd to the repository you want to browse
 
-2. run `$PATH\_TO\_MD\_BROWSER\_CHECKOUT/md_browser.py`
+2. run `$PATH_TO_MD_BROWSER_CHECKOUT/md_browser.py`
 
 3. There is no step three.
 
