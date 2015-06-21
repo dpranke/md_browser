@@ -1,5 +1,7 @@
 # md\_browser
 
+Go to [step 3](#step3)
+
 This is a simple tool to render the markdown docs in a chromium checkout
 locally. It is written in Python and uses the Python 'markdown' package,
 which is pulled in via a git submodule:
@@ -19,13 +21,19 @@ This is a lighterweight solution, which also allows you to preview uncommitted
 changes (i.e., it just serves files out of the filesystem, and is not a
 full Git repo browser like Gitiles is).
 
+## heading 2
+
+## --help
+
+## --version
+
 To run md\_browser:
 
 1. cd to the repository you want to browse
 
 2. run `$PATH_TO_MD_BROWSER_CHECKOUT/md_browser.py`
 
-3. There is no step three.
+3. <a name="step3"></a>There is no step three.
 
 This will run a local web server on port 8080 that points to the top
 of the repo.  You can specify a different port with the `-p` flag
