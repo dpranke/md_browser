@@ -1,11 +1,8 @@
-#!/usr/bin/env python
-
 # Copyright 2015 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
 """Simple Markdown browser for a Git checkout."""
-
 from __future__ import print_function
 
 import SimpleHTTPServer
@@ -13,113 +10,153 @@ import SocketServer
 import argparse
 import codecs
 import os
+import re
 import socket
-import subprocess
 import sys
 
 
-try:
-    import markdown
-except ImportError:
-    d = os.path.dirname(__file__)
-    if os.path.exists(os.path.join(d, 'Python-Markdown', 'markdown')):
-        sys.path.append(os.path.join(d, 'Python-Markdown'))
-        try:
-            import markdown
-        except ImportError:
-            print("markdown doesn't seem to be installed; run ",
-                  "`sudo pip install markdown` or `git submodule fetch`",
-                  file=sys.stderr)
-            sys.exit(1)
-
-
-CURDIR = os.path.abspath(os.path.dirname(__file__))
+THIS_DIR = os.path.abspath(os.path.dirname(__file__))
+SRC_DIR = os.path.dirname(os.path.dirname(THIS_DIR))
+sys.path.append(os.path.join(SRC_DIR, 'third_party', 'Python-Markdown'))
+import markdown
 
 
 def main(argv):
-    parser = argparse.ArgumentParser(prog='md_browser')
-    parser.add_argument('-p', '--port', type=int, default=8080,
-                        help='port to run on (default = %(default)s)')
-    args = parser.parse_args(argv)
+  parser = argparse.ArgumentParser(prog='md_browser')
+  parser.add_argument('-p', '--port', type=int, default=8080,
+                      help='port to run on (default = %(default)s)')
+  args = parser.parse_args(argv)
 
-    top_level = subprocess.check_output(['git', 'rev-parse',
-                                         '--show-toplevel'])
-    s = Server(args.port, top_level.strip())
+  try:
+    s = Server(args.port, SRC_DIR)
+    print("Listening on http://localhost:%s/" % args.port)
+    print(" Try loading http://localhost:%s/docs/README.md" % args.port)
+    s.serve_forever()
+    s.shutdown()
+    return 0
+  except KeyboardInterrupt:
+    return 130
 
-    try:
-        s.serve_forever()
-        s.shutdown()
-        return 0
-    except KeyboardInterrupt:
-        return 130
+
+def _gitiles_slugify(value, _separator):
+  """Convert a string (representing a section title) to URL anchor name.
+
+  This function is passed to "toc" extension as an extension option, so we
+  can emulate the way how Gitiles converts header titles to URL anchors.
+
+  Gitiles' official documentation about the conversion is at:
+
+  https://gerrit.googlesource.com/gitiles/+/master/Documentation/markdown.md#Named-anchors
+
+  Args:
+    value: The name of a section that is to be converted.
+    _separator: Unused. This is actually a configurable string that is used
+        as a replacement character for spaces in the title, typically set to
+        '-'. Since we emulate Gitiles' way of slugification here, it makes
+        little sense to have the separator charactor configurable.
+  """
+
+  # TODO(yutak): Implement accent removal. This does not seem easy without
+  # some library. For now we just make accented characters turn into
+  # underscores, just like other non-ASCII characters.
+
+  value = value.encode('ascii', 'replace')  # Non-ASCII turns into '?'.
+  value = re.sub(r'[^- a-zA-Z0-9]', '_', value)  # Non-alphanumerics to '_'.
+  value = value.replace(u' ', u'-')
+  value = re.sub(r'([-_])[-_]+', r'\1', value)  # Fold hyphens and underscores.
+  return value
 
 
 class Server(SocketServer.TCPServer):
-    def __init__(self, port, top_level):
-        SocketServer.TCPServer.__init__(self, ('0.0.0.0', port), Handler)
-        self.port = port
-        self.top_level = top_level
+  def __init__(self, port, top_level):
+    SocketServer.TCPServer.__init__(self, ('0.0.0.0', port), Handler)
+    self.port = port
+    self.top_level = top_level
 
-    def server_bind(self):
-        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.socket.bind(self.server_address)
+  def server_bind(self):
+    self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    self.socket.bind(self.server_address)
 
 
 class Handler(SimpleHTTPServer.SimpleHTTPRequestHandler):
-    def do_GET(self):
-        full_path = os.path.abspath(os.path.join(self.server.top_level,
-                                                 self.path[1:]))
-        if not full_path.startswith(self.server.top_level):
-            self._do_out_of_tree()
-        elif self.path == '/doc.css':
-            self._do_css()
-        elif not os.path.exists(full_path):
-            self._do_not_found()
-        elif self.path.endswith('.css'):
-            self._do_css()
-        elif self.path.endswith('.md'):
-            self._do_md()
-        else:
-            self._do_unknown()
+  def do_GET(self):
+    path = self.path
 
-    def _do_css(self):
-        if self.path == '/doc.css':
-            contents = self._read(os.path.join(CURDIR, 'doc.css'))
-        else:
-            contents = self._read(self.path[1:])
+    # strip off the repo and branch info, if present, for compatibility
+    # with gitiles.
+    if path.startswith('/chromium/src/+/master'):
+      path = path[len('/chromium/src/+/master'):]
 
-        self.wfile.write(contents.encode('utf-8'))
+    full_path = os.path.abspath(os.path.join(self.server.top_level, path[1:]))
 
-    def _do_md(self):
-        extensions = [
-            'markdown.extensions.fenced_code',
-            'markdown.extensions.tables',
-            'markdown.extensions.toc',
-        ]
+    if not full_path.startswith(SRC_DIR):
+      self._DoUnknown()
+    elif path == '/doc.css':
+      self._DoCSS('doc.css')
+    elif not os.path.exists(full_path):
+      self._DoNotFound()
+    elif path.lower().endswith('.md'):
+      self._DoMD(path)
+    elif os.path.exists(full_path + '/README.md'):
+      self._DoMD(path + '/README.md')
+    else:
+      self._DoUnknown()
 
-        contents = self._read(self.path[1:])
-        md_fragment = markdown.markdown(contents,
-                                        extensions=extensions,
-                                        output_format='html4').encode('utf-8')
-        try:
-            self.wfile.write(self._read(os.path.join(CURDIR, 'header.html')))
-            self.wfile.write(md_fragment)
-            self.wfile.write(self._read(os.path.join(CURDIR, 'footer.html')))
-        except:
-            raise
+  def _DoMD(self, path):
+    extensions = [
+        'markdown.extensions.def_list',
+        'markdown.extensions.fenced_code',
+        'markdown.extensions.tables',
+        'markdown.extensions.toc',
+        'gitiles_ext_blocks',
+    ]
+    extension_configs = {
+        'markdown.extensions.toc': {
+            'slugify': _gitiles_slugify
+        },
+    }
 
-    def _do_not_found(self):
-        self.wfile.write('<html><body>%s not found</body></html>' % self.path)
+    contents = self._Read(path[1:])
+    md_fragment = markdown.markdown(contents,
+                                    extensions=extensions,
+                                    extension_configs=extension_configs,
+                                    output_format='html4').encode('utf-8')
+    try:
+      self._WriteHeader('text/html')
+      self._WriteTemplate('header.html')
+      self.wfile.write(md_fragment)
+      self._WriteTemplate('footer.html')
+    except:
+      raise
 
-    def _do_unknown(self):
-        self.wfile.write('<html><body>I do not know how to serve %s.</body>'
-                         '</html>' % self.path)
+  def _DoCSS(self, template):
+    self._WriteHeader('text/css')
+    self._WriteTemplate(template)
 
-    def _read(self, path):
-        if not path.startswith('/'):
-            path = os.path.join(self.server.top_level, path)
-        return codecs.open(path, mode='r', encoding='utf-8').read()
+  def _DoNotFound(self):
+    self._WriteHeader('text/html')
+    self.wfile.write('<html><body>%s not found</body></html>' % self.path)
+
+  def _DoUnknown(self):
+    self._WriteHeader('text/html')
+    self.wfile.write('<html><body>I do not know how to serve %s.</body>'
+                       '</html>' % self.path)
+
+  def _Read(self, relpath):
+    assert not relpath.startswith(os.sep)
+    path = os.path.join(self.server.top_level, relpath)
+    with codecs.open(path, encoding='utf-8') as fp:
+      return fp.read()
+
+  def _WriteHeader(self, content_type='text/plain'):
+    self.send_response(200)
+    self.send_header('Content-Type', content_type)
+    self.end_headers()
+
+  def _WriteTemplate(self, template):
+    contents = self._Read(os.path.join('tools', 'md_browser', template))
+    self.wfile.write(contents.encode('utf-8'))
 
 
 if __name__ == '__main__':
-    sys.exit(main(sys.argv[1:]))
+  sys.exit(main(sys.argv[1:]))
